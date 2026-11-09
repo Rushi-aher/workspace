@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
-  FolderKanban,
   Ticket,
   Columns3,
   Users,
@@ -22,7 +21,6 @@ import { supabase } from '../../lib/supabaseClient'
 // All navigation links displayed in the sidebar.
 const navigation = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'Projects', path: '/projects', icon: FolderKanban },
   { name: 'Tickets', path: '/tickets', icon: Ticket },
   { name: 'Kanban Board', path: '/kanban', icon: Columns3 },
   { name: 'Comments', path: '/comments', icon: MessageSquare },
@@ -253,7 +251,6 @@ function Sidebar() {
           <button
             type="button"
             onClick={() => {
-              // Expand the sidebar before opening the dropdown.
               setExpanded(true)
               setWorkspaceMenuOpen((open) => !open)
             }}
@@ -266,7 +263,6 @@ function Sidebar() {
                 : 'justify-center px-0'
             }`}
           >
-            {/* Center the icon when the sidebar is collapsed. */}
             <Building2
               size={20}
               className="shrink-0 text-blue-600 dark:text-blue-400"
@@ -334,7 +330,6 @@ function Sidebar() {
                         {workspace.name}
                       </span>
 
-                      {/* Mark the currently selected workspace. */}
                       {isSelected && (
                         <Check
                           size={16}

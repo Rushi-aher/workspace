@@ -546,7 +546,8 @@ function ProjectDetails() {
               >
                 <option value="To Do">To Do</option>
                 <option value="In Progress">In Progress</option>
-                <option value="Done">Done</option>
+                <option value="In Review">In Review</option>
+                <option value="Completed">Completed</option>
               </select>
             </div>
 
@@ -683,7 +684,8 @@ function ProjectDetails() {
                       >
                         <option value="To Do">To Do</option>
                         <option value="In Progress">In Progress</option>
-                        <option value="Done">Done</option>
+                        <option value="In Review">In Review</option>
+                        <option value="Completed">Completed</option>
                       </select>
                     </div>
 

@@ -9,13 +9,13 @@ import Login from '../features/auth/Login'
 import Signup from '../features/auth/Signup'
 import PublicRoute from '../features/auth/PublicRoute'
 import ProtectedRoute from '../features/auth/ProtectedRoute'
-import ProjectDetails from '../features/projects/ProjectDetails'
 import Profile from '../features/profile/Profile'
 import Teams from '../features/teams/Teams'
+import Tickets from '../features/tickets/Tickets'
+import Dashboard from '../features/dashboard/Dashboard'
 
 import CreateJoinWorkspace from '../features/workspaces/CreateJoinWorkspace'
 import WorkspaceRedirect from '../features/workspaces/WorkspaceRedirect'
-import Projects from '../features/projects/Projects'
 
 function Page({ title }) {
   return (
@@ -55,26 +55,17 @@ const router = createBrowserRouter([
         path: '/',
         element: <MainLayout />,
         children: [
-          
           {
             index: true,
             element: <Navigate to="/dashboard" replace />,
           },
           {
             path: 'dashboard',
-            element: <WorkspaceRedirect />,
-          },
-          {
-            path: 'projects',
-            element: <Projects />,
-          },
-          {
-            path: 'projects/:projectId',
-            element: <ProjectDetails />,
+            element: <Dashboard />,
           },
           {
             path: 'tickets',
-            element: <Page title="Tickets" />,
+            element: <Tickets />,
           },
           {
             path: 'kanban',
@@ -100,10 +91,9 @@ const router = createBrowserRouter([
             path: 'workspaces/new',
             element: <CreateJoinWorkspace />,
           },
-          // Allow signed-in users to open their profile.
-          { 
-            path: 'profile', 
-            element: <Profile /> 
+          {
+            path: 'profile',
+            element: <Profile />,
           },
         ],
       },

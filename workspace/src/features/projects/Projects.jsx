@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -6,6 +7,7 @@ import {
   X,
   LoaderCircle,
   ArrowUpRight,
+  Trash2,
 } from 'lucide-react'
 
 import { supabase } from '../../lib/supabaseClient'
@@ -15,8 +17,11 @@ function Projects() {
 
   const [projects, setProjects] = useState([])
   const [workspaceId, setWorkspaceId] = useState(null)
+  const [isOwner, setIsOwner] = useState(false)
+
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [deletingProject, setDeletingProject] = useState(null)
   const [showForm, setShowForm] = useState(false)
 
   const [name, setName] = useState('')
@@ -26,13 +31,12 @@ function Projects() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
-  // Load projects belonging to the workspace selected in the sidebar.
+  // Load projects and verify the current user's workspace role.
   const loadProjects = useCallback(async () => {
     setLoading(true)
     setError('')
 
     try {
-      // Get the logged-in user.
       const {
         data: { user },
         error: userError,
@@ -44,74 +48,69 @@ function Projects() {
         throw new Error('Please log in to view projects.')
       }
 
-      // Read the workspace selected in the sidebar.
       let selectedWorkspaceId = localStorage.getItem(
         'selectedWorkspaceId'
       )
 
-      // If no workspace is selected, use the user's first membership.
+      // Find the user's first workspace if none is selected.
       if (!selectedWorkspaceId) {
-        const {
-          data: memberships,
-          error: membershipError,
-        } = await supabase
-          .from('workspace_members')
-          .select('workspace_id, joined_at')
-          .eq('user_id', user.id)
-          .order('joined_at', { ascending: true })
-          .limit(1)
+        const { data: memberships, error: membershipError } =
+          await supabase
+            .from('workspace_members')
+            .select('workspace_id, role, joined_at')
+            .eq('user_id', user.id)
+            .order('joined_at', { ascending: true })
+            .limit(1)
 
         if (membershipError) throw membershipError
 
         if (!memberships || memberships.length === 0) {
           setWorkspaceId(null)
+          setIsOwner(false)
           setProjects([])
           return
         }
 
         selectedWorkspaceId = memberships[0].workspace_id
 
-        // Save the default selection for future visits.
         localStorage.setItem(
           'selectedWorkspaceId',
           selectedWorkspaceId
         )
       }
 
-      // Verify that the current user belongs to the selected workspace.
-      const {
-        data: membership,
-        error: selectedMembershipError,
-      } = await supabase
-        .from('workspace_members')
-        .select('workspace_id')
-        .eq('user_id', user.id)
-        .eq('workspace_id', selectedWorkspaceId)
-        .maybeSingle()
+      // Verify membership and retrieve the user's role.
+      const { data: membership, error: selectedMembershipError } =
+        await supabase
+          .from('workspace_members')
+          .select('workspace_id, role')
+          .eq('user_id', user.id)
+          .eq('workspace_id', selectedWorkspaceId)
+          .maybeSingle()
 
       if (selectedMembershipError) {
         throw selectedMembershipError
       }
 
-      // If the saved selection is invalid, clear it and ask the user to select again.
       if (!membership) {
         localStorage.removeItem('selectedWorkspaceId')
         setWorkspaceId(null)
+        setIsOwner(false)
         setProjects([])
+
         setError(
           'The selected workspace could not be found. Please select a workspace from the sidebar.'
         )
         return
       }
 
-      // Save the verified workspace ID in component state.
       setWorkspaceId(selectedWorkspaceId)
 
-      // Fetch projects only from the selected workspace.
-      const {
-        data,
-        error: projectsError,
-      } = await supabase
+      // Only the workspace owner can manage projects for now.
+      setIsOwner(membership.role === 'owner')
+
+      // Fetch projects belonging to the selected workspace.
+      const { data, error: projectsError } = await supabase
         .from('projects')
         .select('*')
         .eq('workspace_id', selectedWorkspaceId)
@@ -128,11 +127,9 @@ function Projects() {
     }
   }, [])
 
-  // Load projects on page entry and whenever the sidebar changes workspaces.
   useEffect(() => {
     loadProjects()
 
-    // The sidebar dispatches this event when a workspace is selected or created.
     window.addEventListener('workspacesUpdated', loadProjects)
 
     return () => {
@@ -153,12 +150,17 @@ function Projects() {
     setProjectKey(generatedKey)
   }
 
-  // Create a project inside the currently selected workspace.
+  // Create a project. Only the owner can perform this action.
   async function handleCreateProject(event) {
     event.preventDefault()
 
     setMessage('')
     setError('')
+
+    if (!isOwner) {
+      setError('Only the workspace owner can create projects.')
+      return
+    }
 
     const cleanName = name.trim()
     const cleanKey = projectKey.trim().toUpperCase()
@@ -177,16 +179,13 @@ function Projects() {
     }
 
     if (!workspaceId) {
-      setError(
-        'Please select a workspace before creating a project.'
-      )
+      setError('Please select a workspace before creating a project.')
       return
     }
 
     setCreating(true)
 
     try {
-      // Get the logged-in user.
       const {
         data: { user },
         error: userError,
@@ -198,7 +197,24 @@ function Projects() {
         throw new Error('Please log in before creating a project.')
       }
 
-      // Confirm that the selected workspace is still the one being used.
+      // Verify the owner's role again before inserting.
+      const { data: membership, error: membershipError } =
+        await supabase
+          .from('workspace_members')
+          .select('role')
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', user.id)
+          .maybeSingle()
+
+      if (membershipError) throw membershipError
+
+      if (membership?.role !== 'owner') {
+        setIsOwner(false)
+        throw new Error(
+          'Only the workspace owner can create projects.'
+        )
+      }
+
       const currentWorkspaceId = localStorage.getItem(
         'selectedWorkspaceId'
       )
@@ -209,11 +225,7 @@ function Projects() {
         )
       }
 
-      // Insert the project into the selected workspace.
-      const {
-        data,
-        error: insertError,
-      } = await supabase
+      const { data, error: insertError } = await supabase
         .from('projects')
         .insert({
           workspace_id: workspaceId,
@@ -227,7 +239,6 @@ function Projects() {
 
       if (insertError) throw insertError
 
-      // Add the newly created project to the displayed list.
       setProjects((currentProjects) => [
         data,
         ...currentProjects,
@@ -235,7 +246,6 @@ function Projects() {
 
       setMessage(`Project "${data.name}" created successfully!`)
 
-      // Clear the form fields.
       setName('')
       setProjectKey('')
       setDescription('')
@@ -259,10 +269,86 @@ function Projects() {
     }
   }
 
-  // Render the Projects page.
+  // Delete a project. Only the workspace owner can perform this action.
+  async function handleDeleteProject(project) {
+    if (!isOwner || deletingProject) return
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${project.name}"?\n\nThis action cannot be undone.`
+    )
+
+    if (!confirmed) return
+
+    setDeletingProject(project.id)
+    setError('')
+    setMessage('')
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError) throw userError
+
+      if (!user) {
+        throw new Error('Please log in to delete projects.')
+      }
+
+      // Verify owner permission again.
+      const { data: membership, error: membershipError } =
+        await supabase
+          .from('workspace_members')
+          .select('role')
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', user.id)
+          .maybeSingle()
+
+      if (membershipError) throw membershipError
+
+      if (membership?.role !== 'owner') {
+        setIsOwner(false)
+        throw new Error(
+          'Only the workspace owner can delete projects.'
+        )
+      }
+
+      const { error: deleteError } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', project.id)
+        .eq('workspace_id', workspaceId)
+
+      if (deleteError) throw deleteError
+
+      setProjects((currentProjects) =>
+        currentProjects.filter((item) => item.id !== project.id)
+      )
+
+      setMessage(`Project "${project.name}" deleted successfully!`)
+    } catch (err) {
+      console.error('Error deleting project:', err)
+
+      if (err.code === '23503') {
+        setError(
+          'This project cannot be deleted because it has related records. Please check its tickets and other linked data.'
+        )
+      } else if (err.code === '42501') {
+        setError(
+          'You do not have permission to delete this project.'
+        )
+      } else {
+        setError(err.message || 'Could not delete the project.')
+      }
+    } finally {
+      setDeletingProject(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 text-slate-900 dark:text-slate-100">
-      {/* Page heading and create button. */}
+
+      {/* Page heading and create button */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
@@ -274,22 +360,24 @@ function Projects() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setShowForm(!showForm)
-            setMessage('')
-            setError('')
-          }}
-          disabled={!workspaceId || loading}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {showForm ? <X size={18} /> : <Plus size={18} />}
-          {showForm ? 'Cancel' : 'Create Project'}
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowForm(!showForm)
+              setMessage('')
+              setError('')
+            }}
+            disabled={!workspaceId || loading}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {showForm ? <X size={18} /> : <Plus size={18} />}
+            {showForm ? 'Cancel' : 'Create Project'}
+          </button>
+        )}
       </div>
 
-      {/* Success message. */}
+      {/* Success message */}
       {message && (
         <div
           role="status"
@@ -299,7 +387,7 @@ function Projects() {
         </div>
       )}
 
-      {/* Error message. */}
+      {/* Error message */}
       {error && (
         <div
           role="alert"
@@ -309,8 +397,8 @@ function Projects() {
         </div>
       )}
 
-      {/* Create project form. */}
-      {showForm && (
+      {/* Create project form */}
+      {showForm && isOwner && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-lg font-semibold">
             Create a new project
@@ -427,7 +515,7 @@ function Projects() {
         </div>
       )}
 
-      {/* Project list. */}
+      {/* Project list */}
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">All Projects</h2>
@@ -462,10 +550,12 @@ function Projects() {
             </h3>
 
             <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500 dark:text-slate-400">
-              Create your first project to start organizing your team's work.
+              {isOwner
+                ? "Create your first project to start organizing your team's work."
+                : 'There are no projects in this workspace yet. Contact your workspace owner to create one.'}
             </p>
 
-            {workspaceId && (
+            {isOwner && workspaceId && (
               <button
                 type="button"
                 onClick={() => setShowForm(true)}
@@ -486,6 +576,10 @@ function Projects() {
                 }
                 onKeyDown={(event) => {
                   if (
+                    event.target !== event.currentTarget
+                  ) return
+
+                  if (
                     event.key === 'Enter' ||
                     event.key === ' '
                   ) {
@@ -503,9 +597,34 @@ function Projects() {
                     <FolderKanban size={22} />
                   </div>
 
-                  <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {project.project_key}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {project.project_key}
+                    </span>
+
+                    {isOwner && (
+                      <button
+                        type="button"
+                        title="Delete project"
+                        aria-label={`Delete project ${project.name}`}
+                        disabled={deletingProject !== null}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleDeleteProject(project)
+                        }}
+                        className="rounded-lg border border-red-200 p-2 text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                      >
+                        {deletingProject === project.id ? (
+                          <LoaderCircle
+                            size={16}
+                            className="animate-spin"
+                          />
+                        ) : (
+                          <Trash2 size={16} />
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <h3 className="mt-4 text-base font-semibold">
